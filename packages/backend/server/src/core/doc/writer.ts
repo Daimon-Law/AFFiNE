@@ -86,21 +86,8 @@ export class DocWriter {
     // Prepare root doc update to register the new document
     const rootDocUpdate = addDocToRootDoc(rootDocBin, docId, title);
 
-    // Push both updates together - root doc first, then the new doc
-    const rootTimestamp = await this.storage.pushDocUpdates(
-      workspaceId,
-      workspaceId,
-      [rootDocUpdate],
-      editorId
-    );
-    this.emitDocUpdatesPushed({
-      spaceId: workspaceId,
-      docId: workspaceId,
-      updates: [rootDocUpdate],
-      timestamp: rootTimestamp,
-      editor: editorId,
-    });
-
+    // Push document update first so clients/indexers only discover docs that
+    // already exist in the sync layer when the root meta registration arrives.
     const docTimestamp = await this.storage.pushDocUpdates(
       workspaceId,
       docId,
@@ -112,6 +99,20 @@ export class DocWriter {
       docId,
       updates: [binary],
       timestamp: docTimestamp,
+      editor: editorId,
+    });
+
+    const rootTimestamp = await this.storage.pushDocUpdates(
+      workspaceId,
+      workspaceId,
+      [rootDocUpdate],
+      editorId
+    );
+    this.emitDocUpdatesPushed({
+      spaceId: workspaceId,
+      docId: workspaceId,
+      updates: [rootDocUpdate],
+      timestamp: rootTimestamp,
       editor: editorId,
     });
 
