@@ -3,7 +3,7 @@
  * AFFiNE MCP Server
  *
  * Full read/write MCP server for self-hosted AFFiNE workspaces.
- * Provides 15 tools: document CRUD, collection management, comments, search, and user info.
+ * Provides 22 tools: document CRUD, collection management, comments, folders, search, and user info.
  *
  * Transport: stdio (for OpenClaw / Claude Code subprocess integration)
  * Auth: Email/password sign-in → session cookies for WebSocket + GraphQL
@@ -29,6 +29,7 @@ import { registerDocumentTools } from "./tools/documents.js";
 import { registerCollectionTools } from "./tools/collections.js";
 import { registerCommentTools } from "./tools/comments.js";
 import { registerUtilityTools } from "./tools/utility.js";
+import { registerFolderTools } from "./tools/folders.js";
 import { disconnect } from "./services/websocket.js";
 
 // Validate required env vars
@@ -68,6 +69,7 @@ async function main(): Promise<void> {
   registerCollectionTools(server);
   registerCommentTools(server);
   registerUtilityTools(server);
+  registerFolderTools(server);
 
   // Connect via stdio transport
   const transport = new StdioServerTransport();
@@ -77,7 +79,7 @@ async function main(): Promise<void> {
   console.error(`  Base URL:     ${AFFINE_BASE_URL}`);
   console.error(`  Workspace:    ${AFFINE_WORKSPACE_ID}`);
   console.error(`  User:         ${AFFINE_EMAIL}`);
-  console.error(`  Tools:        15 (docs, collections, comments, search, user)`);
+  console.error(`  Tools:        22 (docs, collections, comments, folders, search, user)`);
 
   // Graceful shutdown
   const shutdown = (): void => {

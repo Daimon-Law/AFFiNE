@@ -215,6 +215,106 @@ export const CurrentUserInputSchema = z
   })
   .strict();
 
+// ─── Folder Schemas ──────────────────────────────────────────────────────────
+
+export const ListFoldersInputSchema = z
+  .object({
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+
+export const CreateFolderInputSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1, "Folder name is required")
+      .max(200, "Folder name must not exceed 200 characters")
+      .describe("Name for the new folder"),
+    parentNodeId: z
+      .string()
+      .optional()
+      .describe(
+        "Parent folder node ID. Omit to create at the root level."
+      ),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+
+export const MoveFolderItemInputSchema = z
+  .object({
+    nodeId: z
+      .string()
+      .min(1, "nodeId is required")
+      .describe(
+        "The folder tree node ID to move (returned from affine_list_folders)"
+      ),
+    newParentNodeId: z
+      .string()
+      .optional()
+      .describe(
+        "Destination parent folder node ID. Omit to move to root level."
+      ),
+    position: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        "Zero-based index within the new parent's children. Omit to append at end."
+      ),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+
+export const AddDocToFolderInputSchema = z
+  .object({
+    docId: z
+      .string()
+      .min(1, "docId is required")
+      .describe("The document ID to add to the folder tree"),
+    parentNodeId: z
+      .string()
+      .optional()
+      .describe(
+        "Parent folder node ID. Omit to add at root level."
+      ),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+
+export const RemoveFolderNodeInputSchema = z
+  .object({
+    nodeId: z
+      .string()
+      .min(1, "nodeId is required")
+      .describe(
+        "The folder tree node ID to remove. For folders, also removes child nodes from tree (but NOT the underlying docs)."
+      ),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+
+export const RenameFolderInputSchema = z
+  .object({
+    nodeId: z
+      .string()
+      .min(1, "nodeId is required")
+      .describe("The folder node ID to rename"),
+    name: z
+      .string()
+      .min(1, "Name is required")
+      .max(200, "Name must not exceed 200 characters")
+      .describe("New name for the folder"),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+
+export const DumpUserspaceRootInputSchema = z
+  .object({
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+
 // ─── Type Exports ───────────────────────────────────────────────────────────
 
 export type ListDocsInput = z.infer<typeof ListDocsInputSchema>;
@@ -232,3 +332,10 @@ export type ResolveCommentInput = z.infer<typeof ResolveCommentInputSchema>;
 export type DeleteCommentInput = z.infer<typeof DeleteCommentInputSchema>;
 export type SearchInput = z.infer<typeof SearchInputSchema>;
 export type CurrentUserInput = z.infer<typeof CurrentUserInputSchema>;
+export type ListFoldersInput = z.infer<typeof ListFoldersInputSchema>;
+export type CreateFolderInput = z.infer<typeof CreateFolderInputSchema>;
+export type MoveFolderItemInput = z.infer<typeof MoveFolderItemInputSchema>;
+export type AddDocToFolderInput = z.infer<typeof AddDocToFolderInputSchema>;
+export type RemoveFolderNodeInput = z.infer<typeof RemoveFolderNodeInputSchema>;
+export type RenameFolderInput = z.infer<typeof RenameFolderInputSchema>;
+export type DumpUserspaceRootInput = z.infer<typeof DumpUserspaceRootInputSchema>;
