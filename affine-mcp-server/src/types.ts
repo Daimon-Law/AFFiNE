@@ -92,3 +92,44 @@ export interface TextDelta {
     reference?: unknown;
   };
 }
+
+// ─── Folder / Userspace Types ─────────────────────────────────────────────
+
+/**
+ * Type of item in the folder tree.
+ * AFFiNE's explorer tree supports docs, folders, collections, tags, etc.
+ */
+export type FolderNodeType =
+  | "folder"
+  | "doc"
+  | "collection"
+  | "tag"
+  | "trash"
+  | "favorites";
+
+/**
+ * A node in the userspace folder tree.
+ * Corresponds to one entry in the explorer sidebar.
+ */
+export interface FolderNode {
+  /** Unique ID of this folder node */
+  id: string;
+  /** Type of node */
+  type: FolderNodeType;
+  /** For type=doc: the document ID. For type=folder: folder name or empty. */
+  data: string;
+  /** Ordered child node IDs */
+  children: string[];
+  /** Optional index key from Yjs (for ordering) */
+  index?: string;
+}
+
+/**
+ * Flat map of all folder nodes returned by the list tool.
+ */
+export interface FolderTree {
+  /** The root node IDs (top-level items) */
+  rootIds: string[];
+  /** All nodes keyed by their ID */
+  nodes: Record<string, FolderNode>;
+}

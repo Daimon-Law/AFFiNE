@@ -2,7 +2,12 @@
  * AFFiNE WebSocket Service
  *
  * Manages a persistent Socket.IO connection for Yjs document operations.
- * Handles workspace join, doc loading, update pushing, and sequential write discipline.
+ * Handles workspace join, userspace join, doc loading, update pushing,
+ * and sequential write discipline.
+ *
+ * Supports two space types:
+ *   - "workspace" (shared docs, spaceId = workspaceId)
+ *   - "userspace"  (per-user folder tree, spaceId = userId)
  */
 
 import { io, Socket } from "socket.io-client";
@@ -17,8 +22,13 @@ import {
 import { getSessionCookies, clearSession } from "./auth.js";
 import type { JoinResult, LoadDocResult, PushUpdateResult } from "../types.js";
 
+export type SpaceType = "workspace" | "userspace";
+
 let socket: Socket | null = null;
-let joined = false;
+let workspaceJoined = false;
+
+/** Track which userspace IDs have been joined on the current socket */
+const joinedUserspaces = new Set<string>();
 
 /** Per-doc write queues to enforce sequential write discipline */
 const writeQueues = new Map<string, Promise<void>>();
@@ -55,7 +65,7 @@ function emitWithCallback<T>(
  * Returns the connected and workspace-joined socket.
  */
 export async function getSocket(): Promise<Socket> {
-  if (socket?.connected && joined) {
+  if (socket?.connected && workspaceJoined) {
     return socket;
   }
 
@@ -63,7 +73,8 @@ export async function getSocket(): Promise<Socket> {
   if (socket) {
     socket.disconnect();
     socket = null;
-    joined = false;
+    workspaceJoined = false;
+    joinedUserspaces.clear();
   }
 
   const cookies = await getSessionCookies();
@@ -116,7 +127,7 @@ export async function getSocket(): Promise<Socket> {
           `WebSocket: Joined workspace ${AFFINE_WORKSPACE_ID} (clientId: ${joinResult.clientId})`
         );
         socket = sock;
-        joined = true;
+        workspaceJoined = true;
         resolve(sock);
       } catch (err) {
         sock.disconnect();
@@ -134,7 +145,8 @@ export async function getSocket(): Promise<Socket> {
 
     sock.on("disconnect", (reason) => {
       console.error(`WebSocket: Disconnected (${reason})`);
-      joined = false;
+      workspaceJoined = false;
+      joinedUserspaces.clear();
       if (reason === "io server disconnect") {
         // Server kicked us — clear auth and let next call reconnect
         clearSession();
@@ -144,7 +156,42 @@ export async function getSocket(): Promise<Socket> {
 }
 
 /**
- * Load a document via WebSocket.
+ * Join a userspace channel on the existing socket.
+ * The spaceId for userspace is the authenticated user's ID.
+ *
+ * @param userId - The authenticated user's ID (from getCurrentUser())
+ */
+export async function joinUserspace(userId: string): Promise<void> {
+  const sock = await getSocket();
+
+  // Already joined this userspace on this socket
+  if (joinedUserspaces.has(userId)) {
+    return;
+  }
+
+  const joinResult = await emitWithCallback<JoinResult>(sock, "space:join", {
+    spaceType: "userspace",
+    spaceId: userId,
+    clientVersion: AFFINE_CLIENT_VERSION,
+  });
+
+  if (!joinResult.success) {
+    throw new Error(
+      `WebSocket: userspace join failed for userId="${userId}". ` +
+        `Check that this user has access and clientVersion="${AFFINE_CLIENT_VERSION}" is correct.`
+    );
+  }
+
+  joinedUserspaces.add(userId);
+  console.error(
+    `WebSocket: Joined userspace ${userId} (clientId: ${joinResult.clientId})`
+  );
+}
+
+// ─── Workspace Document Operations ─────────────────────────────────────────
+
+/**
+ * Load a document via WebSocket (workspace space).
  * Returns the base64-encoded Yjs update (in the `missing` field).
  */
 export async function loadDoc(docId: string): Promise<LoadDocResult> {
@@ -168,7 +215,7 @@ export async function loadDoc(docId: string): Promise<LoadDocResult> {
 }
 
 /**
- * Push a Yjs update to the server.
+ * Push a Yjs update to the server (workspace space).
  * Enforces sequential writes per document.
  */
 export async function pushDocUpdate(
@@ -211,7 +258,7 @@ export async function pushDocUpdate(
 }
 
 /**
- * Delete a document via WebSocket.
+ * Delete a document via WebSocket (workspace space).
  * Note: This emits a fire-and-forget event (no callback).
  */
 export async function deleteDoc(docId: string): Promise<void> {
@@ -228,6 +275,90 @@ export async function deleteDoc(docId: string): Promise<void> {
   console.error(`WebSocket: Deleted doc ${docId}`);
 }
 
+// ─── Userspace Document Operations ─────────────────────────────────────────
+
+/**
+ * Load a document from userspace.
+ * Automatically joins the userspace channel if not already joined.
+ *
+ * @param userId - The authenticated user's ID
+ * @param docId  - The document ID to load (often userId for the root doc)
+ */
+export async function loadUserspaceDoc(
+  userId: string,
+  docId: string
+): Promise<LoadDocResult> {
+  await joinUserspace(userId);
+  const sock = await getSocket();
+
+  const result = await emitWithCallback<LoadDocResult>(
+    sock,
+    "space:load-doc",
+    {
+      spaceType: "userspace",
+      spaceId: userId,
+      docId,
+    }
+  );
+
+  if (!result.missing && !result.state) {
+    throw new Error(
+      `USERSPACE_DOC_NOT_FOUND: Document "${docId}" does not exist in userspace`
+    );
+  }
+
+  return result;
+}
+
+/**
+ * Push a Yjs update to the server (userspace).
+ * Enforces sequential writes per document.
+ *
+ * @param userId       - The authenticated user's ID
+ * @param docId        - The document ID to update
+ * @param updateBase64 - Base64-encoded Yjs update
+ */
+export async function pushUserspaceDocUpdate(
+  userId: string,
+  docId: string,
+  updateBase64: string
+): Promise<PushUpdateResult> {
+  await joinUserspace(userId);
+
+  const queueKey = `userspace:${docId}`;
+  const previous = writeQueues.get(queueKey) ?? Promise.resolve();
+
+  const current = previous.then(async () => {
+    const sock = await getSocket();
+
+    const result = await emitWithCallback<PushUpdateResult>(
+      sock,
+      "space:push-doc-update",
+      {
+        spaceType: "userspace",
+        spaceId: userId,
+        docId,
+        update: updateBase64,
+      }
+    );
+
+    if (!result.accepted) {
+      throw new Error(
+        `Userspace push rejected for doc "${docId}". Possible conflict — try re-reading first.`
+      );
+    }
+
+    return result;
+  });
+
+  writeQueues.set(
+    queueKey,
+    current.then(() => {})
+  );
+
+  return current;
+}
+
 /**
  * Disconnect the WebSocket cleanly.
  */
@@ -235,7 +366,8 @@ export function disconnect(): void {
   if (socket) {
     socket.disconnect();
     socket = null;
-    joined = false;
+    workspaceJoined = false;
+    joinedUserspaces.clear();
     writeQueues.clear();
     console.error("WebSocket: Disconnected");
   }
